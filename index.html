@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>End-to-End Setup: Training Hugging Face Models on an HPC Cluster</title>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --text-color: #333;
+            --bg-color: #fff;
+            --code-bg: #f5f7ff;
+            --border-color: #e5e7eb;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+            background-color: var(--bg-color);
+        }
+
+        h1, h2, h3 {
+            color: #111;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            border-bottom: 2px solid var(--primary-color);
+            padding-bottom: 0.5rem;
+        }
+
+        h2 {
+            font-size: 1.8rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.3rem;
+        }
+
+        h3 {
+            font-size: 1.4rem;
+        }
+
+        p {
+            margin-bottom: 1rem;
+        }
+
+        ul, ol {
+            margin-bottom: 1rem;
+            padding-left: 2rem;
+        }
+
+        li {
+            margin-bottom: 0.5rem;
+        }
+
+        code {
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            background-color: var(--code-bg);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: #d63384;
+        }
+
+        pre {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            padding: 1.5rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-size: 0.9rem;
+            margin-bottom: 1.5rem;
+            line-height: 1.5;
+        }
+
+        pre code {
+            background-color: transparent;
+            color: inherit;
+            padding: 0;
+        }
+
+        .note {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .warning {
+            background-color: #f8d7da;
+            border-left: 4px solid #dc3545;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .success {
+            background-color: #d1e7dd;
+            border-left: 4px solid #198754;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        footer {
+            margin-top: 3rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border-color);
+            text-align: center;
+            font-size: 0.9rem;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>End-to-End Setup: Training Hugging Face Models on an HPC Cluster</h1>
+        <p>This document provides a complete, reproducible guide for setting up the environment, configuring Hugging Face, and training a model on an HPC cluster with GPUs, using Jupyter or batch jobs.</p>
+        <p>It is designed for users who encounter common HPC issues such as permission errors, cache misconfiguration, and Jupyter display problems.</p>
+    </header>
+
+    <main>
+        <section id="overview">
+            <h2>1. Overview</h2>
+            <p>Training Hugging Face models on HPC systems often fails due to:</p>
+            <ul>
+                <li>Restricted filesystem permissions (e.g. unwritable <code>/scratch</code>)</li>
+                <li>Incorrect default cache locations</li>
+                <li>Missing padding tokens for decoder-only models (e.g. GPT-2)</li>
+                <li>Jupyter widget incompatibilities on remote clusters</li>
+            </ul>
+            <p>This guide demonstrates a minimal, robust workflow that avoids all of these issues.</p>
+        </section>
+
+        <section id="interactive-session">
+            <h2>2. Getting Started: Interactive Session via On-Demand Portal</h2>
+            <p>Most modern HPC systems use an "On-Demand" portal for easy access. Follow these steps to launch a GPU-enabled environment.</p>
+
+            <h3>Step 1: Log into the Portal</h3>
+            <p>Open your HPC portal in a browser:</p>
+            <p><strong>URL:</strong> <a href="https://ood.explorer.northeastern.edu/pun/sys/dashboard" target="_blank">https://ood.explorer.northeastern.edu/pun/sys/dashboard</a></p>
+            <p>Log in with your institution credentials.</p>
+
+            <h3>Step 2: Start an Interactive GPU Session</h3>
+            <p>Look for a menu like <strong>Interactive Apps</strong> → <strong>GPU Desktop / Jupyter / Terminal</strong>.</p>
+            <p>Choose <strong>JupyterLab</strong> (easiest for Hugging Face) or Jupyter Notebook.</p>
+
+            <h3>Step 3: Resource Request Form (Configuration Guide)</h3>
+            <p>Fill the form exactly as follows to ensure access to the correct GPU resources:</p>
+            
+            <ul>
+                <li>
+                    <strong>System-wide Conda Module:</strong><br>
+                    <code>Keep Default (e.g., anaconda3/2024.06)</code><br>
+                    <small><em>This provides the base Python environment.</em></small>
+                </li>
+                <li>
+                    <strong>Custom Anaconda Environment:</strong><br>
+                    <code>Leave Empty</code><br>
+                    <small><em>We will create a clean environment directly in the notebook/terminal.</em></small>
+                </li>
+                <li>
+                    <strong>Partition (Critical Step):</strong><br>
+                    <code>gpu-interactive</code><br>
+                    <small><em><strong>Why?</strong> "courses" or "short" queues often lack GPUs. "courses-gpu" is restricted. "gpu-interactive" is for general research/testing.</em></small>
+                </li>
+                <li>
+                    <strong>Time (in hours):</strong><br>
+                    <code>4</code> (or 2-4 hours)<br>
+                    <small><em><strong>Why?</strong> Avoid selecting 24+ hours. Shorter requests (under 4h) get through the queue much faster.</em></small>
+                </li>
+                <li>
+                    <strong>CPUs:</strong><br>
+                    <code>4</code><br>
+                    <small><em><strong>Why?</strong> Training is GPU-bound. Extra CPUs don't help much and just increase wait times.</em></small>
+                </li>
+                <li>
+                    <strong>Memory (In GB):</strong><br>
+                    <code>32</code><br>
+                    <small><em><strong>Why?</strong> Hugging Face models are memory-hungry. 16GB is risky; 32GB is safe for most standard models.</em></small>
+                </li>
+            </ul>
+
+            <p>Click <strong>Launch / Submit / Start</strong> and wait until the status shows "Running".</p>
+
+            <h3>Step 4: Open the Session</h3>
+            <p>Once running, click <strong>Connect</strong> then <strong>Open JupyterLab</strong>.</p>
+            
+            <h3>Step 5: Open a Terminal inside Jupyter</h3>
+            <p>In JupyterLab, go to <strong>File</strong> → <strong>New</strong> → <strong>Terminal</strong> to prepare your environment.</p>
+        </section>
+
+        <section id="environment-setup">
+            <h2>3. Environment Setup (Critical Step)</h2>
+            
+            <h3>3.1 Create Python Environment</h3>
+            <p>In the terminal you just opened, create and activate a clean Python environment.</p>
+            
+            <p><strong>Option A: Using venv (Standard Python)</strong></p>
+<pre><code>python -m venv hf_env
+source hf_env/bin/activate
+pip install --upgrade pip</code></pre>
+
+            <p><strong>Option B: Using Conda (If available)</strong></p>
+<pre><code>conda create -n hf_env python=3.10 -y
+conda activate hf_env</code></pre>
+            
+            <h3>3.2 Install Packages</h3>
+<pre><code>pip install torch transformers datasets accelerate huggingface_hub</code></pre>
+
+            <div class="note">
+                <strong>Note:</strong>
+                <ul>
+                    <li>Use the PyTorch version recommended by your HPC for GPU support.</li>
+                    <li>CUDA is typically preinstalled on HPC systems.</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="cache-config">
+            <h2>4. Hugging Face Cache Configuration</h2>
+            <p>This is the most common cause of failure. You must define where Hugging Face saves downloaded models.</p>
+
+            <h3>Option A: Using Scratch (Recommended for Large Models)</h3>
+            <p>If your HPC provides a fast <code>/scratch</code> directory, use it to avoid filling up your home directory quota.</p>
+            <p><strong>Run this in your terminal:</strong></p>
+<pre><code>mkdir -p /scratch/$USER/huggingface
+export HF_HOME=/scratch/$USER/huggingface</code></pre>
+
+            <h3>Option B: Using Home Directory (Persistent but Limited)</h3>
+            <p>If you don't have scratch access, force it to your home directory explicitly.</p>
+<pre><code>import os
+# Put this at the top of your Python Notebook
+os.environ["HF_HOME"] = "/home/&lt;username&gt;/.cache/huggingface"</code></pre>
+
+            <h3>Authenticate with Hugging Face</h3>
+            <p>If accessing gated models (like Llama 2/3), login is required:</p>
+<pre><code>huggingface-cli login</code></pre>
+            <p>Paste your token from <a href="https://huggingface.co/settings/tokens" target="_blank">huggingface.co/settings/tokens</a> when prompted.</p>
+        </section>
+
+        <section id="quick-verification">
+            <h2>5. Quick Verification: Run a Model</h2>
+            <p>Before starting a full training run, verify that the GPU and environment are working correctly.</p>
+            <p>Create a new Notebook (Select <strong>Python (hf_env)</strong> kernel) and run this cell:</p>
+
+<pre><code>import torch
+from transformers import pipeline
+
+pipe = pipeline(
+    "text-generation",
+    model="gpt2",
+    device=0  # Uses the first GPU
+)
+
+print(pipe("HPC makes AI faster because", max_new_tokens=40))</code></pre>
+            <div class="success">
+                ✅ If it outputs text, your GPU + Hugging Face setup is working correctly.
+            </div>
+
+            <h3>Optional: Test a Larger Model (e.g., Llama-2)</h3>
+<pre><code>from transformers import AutoTokenizer, AutoModelForCausalLM
+
+model_id = "meta-llama/Llama-2-7b-chat-hf"
+
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+model = AutoModelForCausalLM.from_pretrained(
+    model_id,
+    torch_dtype=torch.float16,
+    device_map="auto"
+)
+
+inputs = tokenizer("Explain HPC briefly.", return_tensors="pt").to("cuda")
+outputs = model.generate(**inputs, max_new_tokens=50)
+print(tokenizer.decode(outputs[0], skip_special_tokens=True))</code></pre>
+        </section>
+
+        <section id="full-training">
+            <h2>6. Full Training Example: Fine-Tuning GPT-2</h2>
+            <p>Below is a complete script for fine-tuning a model. Ensure you have run the cache setup cells first.</p>
+
+            <h3>6.1 Model and Tokenizer Initialization</h3>
+            <p>Decoder-only models such as GPT-2 do not define a padding token. For training, we explicitly assign the EOS token as the padding token.</p>
+
+<pre><code>from transformers import AutoTokenizer, AutoModelForCausalLM
+
+model_name = "gpt2"
+
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+tokenizer.pad_token = tokenizer.eos_token  # required for training
+
+model = AutoModelForCausalLM.from_pretrained(model_name)
+model.resize_token_embeddings(len(tokenizer))</code></pre>
+
+            <h3>6.2 Dataset Preparation</h3>
+<pre><code>from datasets import Dataset
+
+texts = [
+    "HPC makes AI faster by providing massive parallel compute.",
+    "Large language models require GPUs to train efficiently.",
+    "Distributed training is essential for scaling deep learning.",
+    "Hugging Face simplifies model training on clusters."
+]
+
+dataset = Dataset.from_dict({"text": texts})
+
+def tokenize_fn(example):
+    return tokenizer(
+        example["text"],
+        truncation=True,
+        padding="max_length",
+        max_length=64,
+    )
+
+tokenized_ds = dataset.map(tokenize_fn, remove_columns=["text"])</code></pre>
+
+            <h3>6.3 Training Configuration & Execution</h3>
+<pre><code>from transformers import TrainingArguments, Trainer, DataCollatorForLanguageModeling
+
+training_args = TrainingArguments(
+    output_dir="./gpt2-hpc-demo",
+    per_device_train_batch_size=2,
+    num_train_epochs=3,
+    learning_rate=5e-5,
+    fp16=True,              # recommended on GPUs
+    logging_steps=1,
+    save_strategy="no",
+    report_to="none",       # disable external logging on HPC
+    disable_tqdm=True       # avoids Jupyter widget errors
+)
+
+data_collator = DataCollatorForLanguageModeling(
+    tokenizer=tokenizer,
+    mlm=False
+)
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized_ds,
+    data_collator=data_collator,
+)
+
+trainer.train()</code></pre>
+        </section>
+
+        <section id="troubleshooting">
+            <h2>7. Common Warnings & Troubleshooting</h2>
+            
+            <h3>Padding Token Warning</h3>
+            <pre><code>Setting pad_token_id to eos_token_id</code></pre>
+            <p>Expected behavior for GPT-2. Safe and correct.</p>
+
+            <h3>Cache Deprecation Warning</h3>
+            <pre><code>FutureWarning: TRANSFORMERS_CACHE is deprecated</code></pre>
+            <p>Not an error. Setting <code>HF_HOME</code> properly resolves this.</p>
+
+            <h3>Jupyter Widget Errors</h3>
+            <pre><code>Error displaying widget</code></pre>
+            <p>Caused by limited Jupyter frontend support on HPC. Resolved by <code>disable_tqdm=True</code> in training arguments.</p>
+        </section>
+
+        <section id="cleanup">
+            <h2>8. Saving Results & Ending Session</h2>
+            <h3>Save Your Work</h3>
+            <ul>
+                <li>Right-click the notebook file in the sidebar and select <strong>Download</strong> to save it to your local machine.</li>
+                <li>Or copy output files to a persistent location: <code>cp -r ./gpt2-hpc-demo /home/$USER/</code></li>
+            </ul>
+
+            <h3>End the Session (Very Important)</h3>
+            <p>When finished, go back to the On-Demand dashboard and click <strong>Delete / Stop / Terminate</strong> on your active session.</p>
+            <p class="warning">Closing the browser tab does NOT stop the session. You will continue to burn GPU hours if you don't terminate it from the dashboard.</p>
+        </section>
+
+        <section id="takeaways">
+            <h2>9. Key Takeaways</h2>
+            <ul>
+                <li>Always use <code>HF_HOME</code> to redirect cache to <code>/scratch</code> or a writable home folder.</li>
+                <li>Use <code>disable_tqdm=True</code> to prevent Jupyter crashes during training.</li>
+                <li>Explicitly set padding tokens for GPT models.</li>
+                <li>Terminate your session when done to save resources.</li>
+            </ul>
+        </section>
+    </main>
+
+    <footer>
+        <p>Generated on 2026-01-14</p>
+    </footer>
+</body>
+</html>
